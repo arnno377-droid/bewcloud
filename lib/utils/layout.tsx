@@ -57,6 +57,19 @@ async function basicLayout(
 
       <body class="h-full">
         ${headerHtml} ${htmlContent}
+
+        <script>
+          // Tell the upload service worker to abort its queue before navigating away, instead of letting it keep running against a session that's about to be gone.
+          document.getElementById('logout-link')?.addEventListener('click', async () => {
+            if (navigator.serviceWorker?.controller) {
+              navigator.serviceWorker.controller.postMessage({ type: 'ABORT_UPLOADS' });
+              return;
+            }
+
+            const registration = await navigator.serviceWorker?.ready;
+            registration?.active?.postMessage({ type: 'ABORT_UPLOADS' });
+          });
+        </script>
       </body>
     </html>
   `;
@@ -81,7 +94,7 @@ export async function basicLayoutResponse(htmlContent: string, options: BasicLay
   const headers: HeadersInit = {
     'content-type': 'text/html; charset=utf-8',
     'content-security-policy':
-      `default-src 'self'; child-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'`,
+      `default-src 'self'; child-src 'none'; worker-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'`,
     'x-frame-options': 'DENY',
     'x-content-type-options': 'nosniff',
     'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
