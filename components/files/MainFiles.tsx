@@ -2,6 +2,7 @@ import { useSignal } from '@preact/signals';
 
 import { Directory, DirectoryFile } from '/lib/types.ts';
 import { SortColumn, sortDirectories, sortFiles, SortOrder } from '/public/ts/utils/files.ts';
+import { postToUploadServiceWorker } from '/public/ts/service-worker.ts';
 import { RequestBody as RenameRequestBody, ResponseBody as RenameResponseBody } from '/pages/api/files/rename.ts';
 import { RequestBody as MoveRequestBody, ResponseBody as MoveResponseBody } from '/pages/api/files/move.ts';
 import { RequestBody as DeleteRequestBody, ResponseBody as DeleteResponseBody } from '/pages/api/files/delete.ts';
@@ -33,7 +34,7 @@ import {
   RequestBody as DeleteShareRequestBody,
   ResponseBody as DeleteShareResponseBody,
 } from '/pages/api/files/delete-share.ts';
-import { postToUploadServiceWorker, useUploadQueue } from './useUploadQueue.ts';
+import { useUploadQueue } from './useUploadQueue.ts';
 import SearchFiles from './SearchFiles.tsx';
 import ListFiles from './ListFiles.tsx';
 import FilesBreadcrumb from './FilesBreadcrumb.tsx';
@@ -103,6 +104,14 @@ export default function MainFiles(
     uploadKind: 'file',
   });
 
+  function notifyDirectoryGone(parentPath: string, name: string) {
+    return postToUploadServiceWorker({
+      type: 'DIRECTORY_DELETED',
+      sessionTag: uploadSessionTag ?? '',
+      path: `${parentPath}${name}/`,
+    });
+  }
+
   function onClickSort(column: SortColumn) {
     let newSortOrder: SortOrder = 'asc';
 
@@ -163,7 +172,7 @@ export default function MainFiles(
 
         // Resolve the parent path, keeping any sub-directory structure from directory uploads.
         // We don't need to worry about path joining here, the API will handle it (and make sure it's secure)
-        const directoryPath = chosenFile.webkitRelativePath.replace(chosenFile.name, '');
+        const directoryPath = chosenFile.webkitRelativePath.slice(0, -chosenFile.name.length);
         return `${path.value}${directoryPath}`;
       }
 
@@ -290,6 +299,11 @@ export default function MainFiles(
       }
 
       directories.value = [...result.newDirectories];
+
+      await notifyDirectoryGone(
+        renameDirectoryOrFileModal.value.parentPath,
+        renameDirectoryOrFileModal.value.name,
+      );
     } catch (error) {
       console.error(error);
     }
@@ -388,6 +402,8 @@ export default function MainFiles(
       }
 
       directories.value = [...result.newDirectories];
+
+      await notifyDirectoryGone(moveDirectoryOrFileModal.value.path, moveDirectoryOrFileModal.value.name);
     } catch (error) {
       console.error(error);
     }
@@ -478,12 +494,7 @@ export default function MainFiles(
 
         directories.value = [...result.newDirectories];
 
-        // Tell the service worker to drop it instead of letting it keep going. Any queued upload still writing into this directory (or a subdirectory of it) is now writing into nothing.
-        await postToUploadServiceWorker({
-          type: 'DIRECTORY_DELETED',
-          sessionTag: uploadSessionTag ?? '',
-          path: `${parentPath}${name}/`,
-        });
+        await notifyDirectoryGone(parentPath, name);
       } catch (error) {
         console.error(error);
       }
